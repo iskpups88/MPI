@@ -1,56 +1,51 @@
 #include <stdio.h>
+#include <mpi.h>
+#include <stddef.h>
+#include <ctype.h>
 #include <stdlib.h>
-#include <omp.h>
-#include <time.h>
 #include <math.h>
 
-#define DIMERSION_Val 20
-#define ITERATION 10000000
+void srand48();
+double drand48();
 
-double Points[DIMERSION_Val];
+#define iterations 25000000
 
-void calculateVolume(double *totalPoints) {
-    double sum;
-    double Point[DIMERSION_Val];
+double getVolumes(int n)
+{
+    double r = 0;
+    double globalres, total0, total1 = 0;
+    {
 
-#pragma omp parallel for private(sum) shared(Points) reduction(+:Point) num_threads(4)
-    for (int i = 0; i < ITERATION; i++) {
-        for (int k = 0; k < DIMERSION_Val; k++) {
-            Point[k] = 0;
-        }
-        sum = 0;
-        for (int j = 1; j < DIMERSION_Val; j++) {
-            double r = 2 * (((double) rand() / (RAND_MAX)) - 0.5);
-            sum = sum + r * r;
-            if (sum < 1) {
-                Point[j]++;
-            } else {
-                break;
+        for (long i = 0; i < iterations; i++)
+        {
+            total0 = 0.0;
+            for (int j = 0; j < n; ++j)
+            {
+                r = (long double)drand48();
+                total0 += r * r;
             }
-        }
-        #pragma omp critical
-        for (int k = 0; k < DIMERSION_Val; k++) {
-            totalPoints[k] += Point[k];
+            if (total0 < 1)
+                ++total1;
         }
     }
-}		
-
-
-int main(int argc, char *argv[]) {
-    srand(time(NULL));
-    double start = omp_get_wtime();
-    for (int i = 0; i < DIMERSION_Val; i++) {
-        Points[i] = 0;
-    }
-    calculateVolume(Points);
-    double finish = omp_get_wtime();
-
-    for (int i = 1; i < DIMERSION_Val; i++) {
-        double volume = (Points[i] / ITERATION) * pow(2.0, i);
-        printf("Volume of %d-Dimension sphere = %f\n", i, volume);
-    }
-    printf("Time %f\n", finish - start);
+    MPI_Reduce(&total1, &globalres, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+    return globalres;
 }
 
-
-
+int main(int argc, char *argv[])
+{
+    int Procs;
+    int my_rank;
+    double globalres;
+    MPI_Status status;
+    MPI_Init(&argc, &argv);
+    MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &Procs);
+    srand48((long)my_rank);
+    for (int i = 2; i < 20; i++)
+    {
+        globalres = getVolumes(i);
+        if (my_rank==0)
+        printf("Value of %d-dimersion sphere %f\n", i, pow(2.0, i) * (globalres / (iterations*Procs)));
+    }
+}
